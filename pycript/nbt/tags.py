@@ -1,9 +1,10 @@
 from struct import pack, unpack
 
 class TAG:
-    def __init__(self,name,ID,/):
+    def __init__(self,name,ID,value,/):
         self.ID = ID
         self.name = name
+        self.value = value
     def write_prefix(self,file,/):
         file.write(pack('>bh%ss'%len(self.name),self.ID,len(self.name),bytes(self.name,'utf-8')))
     def write_infix(self,file,/):
@@ -11,36 +12,50 @@ class TAG:
     def write(self,file,/):
         self.write_prefix(file)
         self.write_infix(file)
+    @staticmethod
+    def read_prefix(file,/):
+        ID = unpack('>b',file.read(1))[0]
+        name_len = unpack('>h',file.read(2))[0]
+        name = unpack('>%ss' % name_len, file.read(name_len))
+        return (ID, name)
+    @staticmethod
+    def read_infix(file,/):
+        raise NotImplementedError
+    @classmethod
+    def read(cls,file,/):
+        ID, name = cls.read_prefix(file)
+        value = cls.read_infix(file)
+        return cls(name, ID, value)
 
 class TAG_Number(TAG):
-    format_char = {
-        1:'b',
-        2:'h',
-        3:'i',
-        4:'q',
-        5:'f',
-        6:'d'
-    }
     def __init__(self,name,ID,value,/):
-        super().__init__(name,ID)
-        self.value = value
+        super().__init__(name,ID,value)
     def write_infix(self,file,/):
-        file.write(pack('>%s'%TAG_Number.format_char[self.ID],self.value))
+        char = type(self).CHAR
+        file.write(pack('>%s'%char,self.value))
+    @staticmethod
+    def read_infix(self,file,/):
+        char = type(self).CHAR
+        length = type(self).LENGTH
+        return unpack('>%s'%char,file.read(length))
 
 class TAG_Number_Array(TAG):
-    format_char = {
-        7:'b',
-        11:'i',
-        12:'q'
-    }
-    def __init__(self,name,ID,value,/):
-        super().__init__(name,ID)
-        self.value = value
+    def __init__(self,name,ID,values,/):
+        super().__init__(name,ID,values)
     def write_infix(self,file,/):
         file.write(pack('>i',len(self.value)))
-        f = TAG_Number_Array.format_char[self.ID]
+        char = type(self).CHAR
         for value in self.value:
-            file.write(pack(f'>{f}',value))
+            file.write(pack(f'>{char}',value))
+    @classmethod
+    def read_infix(cls,file,/):
+        count = unpack('>i',file.read(4))
+        char = cls.CHAR
+        length = cls.LENGTH
+        ret = []
+        for _ in range(count):
+            ret.append(unpack(f'>{char}',file.read(length)))
+        return ret
     @property
     def values(self,/):
         return self.value
@@ -50,6 +65,8 @@ class TAG_Number_Array(TAG):
 
 class TAG_End(TAG):
     ID = 0
+    def __init__(self,name = None,ID = None,value = None,/):
+        pass
     @staticmethod
     def write(file,/):
         file.write(b'\x00')
@@ -59,65 +76,93 @@ class TAG_End(TAG):
     @staticmethod
     def write_prefix(file,/):
         pass
+    @staticmethod
+    def read_prefix(file,/):
+        pass
+    @staticmethod
+    def read_infix(file,/):
+        pass
+    @staticmethod
+    def read(file,/):
+        assert file.read(1) == b'\x00'
+        return TAG_End()
 
 class TAG_Byte(TAG_Number):
     ID = 1
+    CHAR = 'b'
+    LENGTH = 1
     def __init__(self,name,value,/):
         super().__init__(name,1,value)
     def __str__(self,/):
-        return f'"{self.name}":{self.value}b'
+        return f'{self.name}:{self.value}b'
 
 class TAG_Short(TAG_Number):
     ID = 2
+    CHAR = 'h'
+    LENGTH = 2
     def __init__(self,name,value,/):
         super().__init__(name,2,value)
     def __str__(self,/):
-        return f'"{self.name}":{self.value}s'
+        return f'{self.name}:{self.value}s'
 
 class TAG_Int(TAG_Number):
     ID = 3
+    CHAR = 'i'
+    LENGTH = 4
     def __init__(self,name,value,/):
         super().__init__(name,3,value)
     def __str__(self,/):
-        return f'"{self.name}":{self.value}'
+        return f'{self.name}:{self.value}'
 
 class TAG_Long(TAG_Number):
     ID = 4
+    CHAR = 'q'
+    LENGTH = 8
     def __init__(self,name,value,/):
         super().__init__(name,4,value)
     def __str__(self,/):
-        return f'"{self.name}":{self.value}L'
+        return f'{self.name}:{self.value}L'
 
 class TAG_Float(TAG_Number):
     ID = 5
+    CHAR = 'f'
+    LENGTH = 4
     def __init__(self,name,value,/):
         super().__init__(name,5,value)
     def __str__(self,/):
-        return f'"{self.name}":{self.value}f'
+        return f'{self.name}:{self.value}f'
 
 class TAG_Double(TAG_Number):
     ID = 6
+    CHAR = 'd'
+    LENGTH = 8
     def __init__(self,name,value,/):
         super().__init__(name,6,value)
     def __str__(self,/):
-        return f'"{self.name}":{self.value}d'
+        return f'{self.name}:{self.value}d'
 
 class TAG_Byte_Array(TAG_Number_Array):
     ID = 7
+    CHAR = 'b'
+    LENGTH = 1
     def __init__(self,name,values,/):
         super().__init__(name,7,values)
     def __str__(self,/):
-        return f'"{self.name}":[B;{",".join([str(_) for _ in self.value])}]'
+        return f'{self.name}:[B;{",".join([str(_) for _ in self.value])}]'
 
 class TAG_String(TAG):
     ID = 8
     def __init__(self,name,value,/):
-        super().__init__(name,8)
-        self.value = value
+        super().__init__(name,8,value)
     def write_infix(self,file,/):
         file.write(pack('>h%ss'%len(self.value),len(self.value),bytes(self.value,'utf-8')))
+    @staticmethod
+    def read_infix(file,/):
+        name_len = unpack('>h',file.read(2))
+        name = unpack('>%ss' % name_len, file.read(name_len))
+        return name
     def __str__(self,/):
-        return f'"{self.name}":"{self.value}"'
+        return f'{self.name}:"{self.value}"'
 
 class TAG_List(TAG):
     EMPTY_LIST_TAG_END = True
@@ -128,11 +173,10 @@ class TAG_List(TAG):
         str: TAG_String
     }
     def __init__(self,name,/,values=None,cls=None):
-        super().__init__(name,9)
-        self.value = values or []
+        super().__init__(name,9,values or [])
         if cls is None:
-            if len(self.value) > 0:
-                cls = type(self.value[0])
+            if len(values) > 0:
+                cls = type(values[0])
             else:
                 if TAG_List.EMPTY_LIST_TAG_END:
                     cls = TAG_End
@@ -143,7 +187,7 @@ class TAG_List(TAG):
                 cls = TAG_List.class_guess[cls]
             else:
                 if cls is list:
-                    if len(self.value) > 0 and self.value[0] is int:
+                    if len(values) > 0 and values[0] is int:
                         cls = TAG_Int_Array
                     else:
                         cls = TAG_List
@@ -161,6 +205,15 @@ class TAG_List(TAG):
                 else:
                     t = self.cls(None,tag)
                     t.write_infix(file)
+    @staticmethod
+    def read_infix(file,/):
+        ID = unpack('>b',file.read(1))
+        cls = ID_Type[ID]
+        size = unpack('>i',file.read(4))
+        ret = []
+        for i in range(size):
+            ret.append(cls(None, cls.read_infix(file)))
+        return ret
     @property
     def values(self,/):
         return self.value
@@ -168,17 +221,26 @@ class TAG_List(TAG):
     def values(self,value,/):
         self.value = value
     def __str__(self,/):
-        return f'"{self.name}":[{",".join([str(_) for _ in self.value])}]'
+        return f'{self.name}:[{",".join([str(_.value if isinstance(_,TAG) else _) for _ in self.value])}]'
 
 class TAG_Compound(TAG):
     ID = 10
     def __init__(self,name,tags,/):
-        super().__init__(name,10)
-        self.value = tags
+        super().__init__(name,10,tags)
     def write_infix(self,file,/):
         for tag in self.value:
             tag.write(file)
         TAG_End.write(file)
+    @staticmethod
+    def read_infix(self,file,/):
+        ret = []
+        while True:
+            cls = ID_Type[unpack('>b',file.read(1))]
+            if cls is TAG_End:
+                break
+            file.seek(-1,1)
+            ret.append(cls.read(file))
+        return ret
     @property
     def values(self,/):
         return self.value
@@ -192,21 +254,25 @@ class TAG_Compound(TAG):
     def tags(self,value,/):
         self.value = value
     def __str__(self,/):
-        return f'"{self.name}":{{{",".join([str(_) for _ in self.value])}}}'
+        return f'{self.name}:{{{",".join([str(_) for _ in self.value])}}}'
 
 class TAG_Int_Array(TAG_Number_Array):
     ID = 11
+    CHAR = 'i'
+    LENGTH = 4
     def __init__(self,name,values,/):
         super().__init__(name,11,values)
     def __str__(self,/):
-        return f'"{self.name}":[I;{",".join([str(_) for _ in self.value])}]'
+        return f'{self.name}:[I;{",".join([str(_) for _ in self.value])}]'
 
 class TAG_Long_Array(TAG_Number_Array):
     ID = 12
+    CHAR = 'q'
+    LENGTH = 8
     def __init__(self,name,values,/):
         super().__init__(name,12,values)
     def __str__(self,/):
-        return f'"{self.name}":[L;{",".join([str(_) for _ in self.value])}]'
+        return f'{self.name}:[L;{",".join([str(_) for _ in self.value])}]'
 
 class NBT_File(TAG_Compound):
     def __init__(self,tags,/):
@@ -215,3 +281,19 @@ class NBT_File(TAG_Compound):
         file.write(b'\x0A\x00\x00')
     def __str__(self,/):
         return f'{{{",".join([str(_) for _ in self.value])}}}'
+
+ID_Type = [
+    TAG_End,
+    TAG_Byte,
+    TAG_Short,
+    TAG_Int,
+    TAG_Long,
+    TAG_Float,
+    TAG_Double,
+    TAG_Byte_Array,
+    TAG_String,
+    TAG_List,
+    TAG_Compound,
+    TAG_Int_Array,
+    TAG_Long_Array
+]
